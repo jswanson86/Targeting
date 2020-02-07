@@ -1,0 +1,965 @@
+---
+title: "2020 Targeting Dashboard: PSA 1"
+output: 
+  flexdashboard::flex_dashboard:
+    theme: readable
+    logo: DOEA Logo.png
+    vertical_layout: fill
+    css: custom.css
+---
+
+
+```{r setup, include=FALSE}
+library(openxlsx)
+library(crosstalk)
+library(dplyr)
+library(plotly)
+library(flexdashboard)
+library(htmltools)
+library(RColorBrewer)
+library(rgdal)
+library(sf)
+library(htmlwidgets)
+library(rgeos)
+library(leaflet)
+library(leaflet.extras)
+
+data =read.xlsx("data/Targeting_Data.xlsx")
+#Change according to PSA
+data = subset(data,data$PSA==1)
+
+data$standard = ceiling((data$Indicator_pop/data$Population)*100)
+data$performance = ceiling((data$Served_indicator/data$Served)*100)
+data$group = factor(ifelse(data$performance>=(data$standard*2),"Super Exceeds",ifelse(data$performance>=(data$standard+10),"Over Standard Plus 10%",ifelse(data$performance>=data$standard,"Meets or Exceeds","Does Not Meet"))))
+myColors <- brewer.pal(4,"Set1")
+names(myColors) <- levels(data$group)
+data$color_type = ifelse(data$group == names(myColors)[1],myColors[1],ifelse(data$group == names(myColors)[2],myColors[2],
+                  ifelse(data$group == names(myColors)[3],myColors[3],ifelse(data$group == names(myColors)[4],myColors[4],""))))
+data$text = ifelse(data$performance>=(data$standard*2),paste("SUPER Exceeds by ",data$performance-data$standard,"%",sep=""),ifelse(data$performance>=(data$standard+10),paste("Standard Plus 10% over ",data$performance-data$standard,"%",sep=""),ifelse(data$performance>=data$standard,paste("Meets or Exceeds by ",data$performance-data$standard,"%",sep=""),paste("Does Not Meet by ",data$standard-data$performance,"% Needs to serve at least ",ceiling((data$standard*data$Served/100)-data$Served_indicator)," more client(s)",sep=""))))
+data$Year = as.factor(data$Year)
+data_county = data[!grepl("PSA ", data$County),]
+data_PSA = data[grepl("PSA ", data$County),]
+data1 <- SharedData$new(data_county)
+data3 <- SharedData$new(data_PSA)
+
+```
+
+Introduction {style="position:relative;"} 
+===================================== 
+
+
+<div style="text-align: justify">
+# Instructions
+
+* **Use the filters to narrow down your data.**
+* **The default for all filters is to stack everything.**
+* **The legend is dynamic, meaning that the graph can be updated with a click.**
+</div>
+
+Column {style="height:80pc;"}
+--------------------------------
+
+```{r include= F}
+df_intro = data_county%>%distinct(Year,County,.keep_all=T)%>%group_by(Year)%>%summarise(Population = round(mean(Population),0),Served = round(mean(Served),0))
+df_intro$County = "Average"
+
+ df_intro3 = data_county%>%distinct(Year,County,Indicator,.keep_all=T)%>%group_by(Indicator,Year)%>%summarise(Indicator_pop = round(mean(Indicator_pop),0),Served_indicator = round(mean(Served_indicator),0))
+df_intro3$County = "Average"
+
+data5 = SharedData$new(bind_rows(data%>%distinct(Year,County,Indicator,Indicator_pop,Served_indicator,.keep_all=F),df_intro3)%>%arrange(County))
+
+dat_plot = bind_rows(data%>%distinct(Year,County,Population,Served,.keep_all=F),df_intro)%>%arrange(County)
+
+
+B = bscols(plot_ly(dat_plot,x = ~Year, y = ~Population,  type = 'scatter', hoverinfo='text', text = ~paste(Year,' ',County,' ',format(Population,big.mark=","),' of 60+ Population',sep=""),name=~County,hoverlabel = list(font = list(color = 'white')),
+mode="lines+markers")%>%highlight(NULL)%>%
+  config(displayModeBar = F)%>%layout(title = 'Total Population Over Time, by County',showlegend=T,
+legend = list(font = list(size = 12),orientation = 'h',
+xanchor = "center",  # use center of legend as anchor
+x = 0.5,y = -0.2),
+margin = list(l = 25, r = 2, t = 35, b = 70)),
+
+plot_ly(dat_plot,x = ~Year, y = ~Served,  type = 'scatter', hoverinfo='text', text = ~paste(Year,' ',County,' ',format(Served,big.mark=","),' Served',sep=""),name=~County,hoverlabel = list(font = list(color = 'white')),
+mode="lines+markers")%>%highlight(NULL)%>%
+  config(displayModeBar = F)%>%layout(title = 'Total Served Over Time, by County',showlegend=T,
+legend = list(font = list(size = 12),orientation = 'h',
+xanchor = "center",  # use center of legend as anchor
+x = 0.5,y = -0.2),
+margin = list(l = 25, r = 2, t = 35, b = 70)))
+
+B1 = bscols(plot_ly(data5,x = ~Year, y = ~Indicator_pop,  type = 'scatter', hoverinfo='text', text = ~paste(Year,' ',County,' ',format(Indicator_pop,big.mark=","),' of 60+ ',Indicator, ' Population',sep=""),name=~County,hoverlabel = list(font = list(color = 'white')),
+mode="lines+markers")%>%  config(displayModeBar = F)%>%highlight(NULL, defaultValues = "Below Poverty Level*")%>%
+layout(title = 'Population Over Time, by County and Indicator',showlegend=T,
+legend = list(font = list(size = 12),orientation = 'h',
+xanchor = "center",  # use center of legend as anchor
+x = 0.5,y = -0.2),yaxis = list(title = "Population"),
+margin = list(l = 25, r = 2, t = 35, b = 70)),
+
+plot_ly(data5,x = ~Year, y = ~Served_indicator,  type = 'scatter', hoverinfo='text', text = ~paste(Year,' ',County,' ',format(as.integer(Served_indicator),big.mark=","),' Served in  ',Indicator,sep=""),name=~County,hoverlabel = list(font = list(color = 'white')),
+mode="lines+markers")%>%  config(displayModeBar = F)%>%highlight(NULL)%>%
+layout(title = 'Clients Served Over Time, by County and Indicator',showlegend=T,
+legend = list(font = list(size = 12),orientation = 'h',
+xanchor = "center",  # use center of legend as anchor
+x = 0.5,y = -0.2),yaxis = list(title = "Served"),
+margin = list(l = 25, r = 2, t = 35, b = 70)))
+```
+
+
+```{r}
+B
+```
+
+```{r}
+filter_select("Indicator", "Indicator", data5, ~Indicator, multiple=F)
+B1
+```
+
+County Data {style="position:relative;"} 
+===================================== 
+<div style="text-align: justify">
+# Instructions
+
+* **Use the filters to narrow down your data.**
+* **The default for all filters is to stack everything.**
+* **The legend is dynamic, meaning that the graph can be updated with a click.**
+</div>
+
+Column {style="height:80pc;"}
+-------------------------------------
+
+```{r filters}
+filter_select("County", "County", data1, ~County, multiple=F)
+ filter_select("Year", "Year", data1, ~Year, multiple=F)
+```
+
+ <font size="5"> **Percentage of Older Adults by Indicator** </font>
+
+### **Population 60+** 
+
+```{r}
+plot_ly(data1, y = ~Indicator,x=~standard,type = "bar",orientation = 'h',marker=list(color = rev(brewer.pal(9,"Oranges"))[5],line = list(color = 'rgb(8,48,107)', width = 1.5)),hoverlabel = list(font = list(color = 'white')),alpha = 0.75, hoverinfo='text', text = ~paste(Year,' ',County,' ',standard, '%',' of 60+ Population',sep=""))%>%
+layout(yaxis = list(showgrid = FALSE, showline = FALSE, showticklabels = TRUE,fixedrange=TRUE, domain= c(0, 0.85),title = ''),
+         xaxis = list(zeroline = FALSE, showline = FALSE, showticklabels = TRUE, fixedrange=TRUE,showgrid = TRUE,title = 'Percentage of 60+ Population'),showlegend = F,title = '',
+         legend = list(font = list(size = 10)),
+         margin = list(l = 20, r = 20, t = 0, b = 70)) %>% config(displayModeBar = F)%>%highlight(NULL)
+```
+
+
+### **Screened and Served**
+
+```{r}
+plot_ly(data1, y = ~Indicator,x=~performance,type = "bar",orientation = 'h',marker=list(color = rev(brewer.pal(9,"Blues"))[1],line = list(color = 'rgb(8,48,107)', width = 1.5)),hoverlabel = list(font = list(color = 'white')),alpha = 0.75, hoverinfo='text', text = ~paste(Year,' ',County,' ',performance, '%',' of Population Screened and Served',sep=""))%>%
+layout(yaxis = list(showgrid = FALSE, showline = FALSE, showticklabels = TRUE,fixedrange=T, domain= c(0, 0.85),title = ''),
+         xaxis = list(zeroline = FALSE, showline = FALSE, showticklabels = TRUE,fixedrange=T, showgrid = TRUE,title = 'Percentage of People Screened and Served'),showlegend = F,title = '',
+         legend = list(font = list(size = 10)),
+         margin = list(l = 20, r = 20, t = 0, b = 70)) %>% config(displayModeBar = F)%>%highlight(NULL)
+```
+
+
+Column {style="height:80pc;"}
+-------------------------------------
+```{r filters2}
+data2 <- SharedData$new(data_county)
+filter_select("County", "County", data2, ~County, multiple=F)
+ filter_select("Indicator", "Indicator", data2, ~Indicator, multiple=F)
+```
+
+ <font size="5"> **Older Adults Served over Time by Indicator** </font>
+
+### **Population 60+ Over Time by Indicator**
+
+```{r}
+plot_ly(data2, x = ~Year,y=~Indicator_pop,type = "bar",marker = list(color = rev(brewer.pal(9,"Reds"))[4],line = list(color = 'rgb(8,48,107)', width = 1.5)),hoverlabel = list(font = list(color = 'white')),
+        alpha = 0.75, hoverinfo='text', text = ~paste(Year,County,format(Indicator_pop,big.mark=","),sep=" "))%>%
+layout(yaxis = list(showgrid = FALSE, showline = FALSE, showticklabels = TRUE,fixedrange=T, domain= c(0, 0.85),title = ''),
+         xaxis = list(zeroline = FALSE, showline = FALSE, showticklabels = TRUE, fixedrange=T,showgrid = TRUE,title = 'Population 60+'),showlegend = F,title = '',
+         legend = list(font = list(size = 10)),
+         margin = list(l = 20, r = 20, t = 0, b = 70)) %>% config(displayModeBar = F)%>%highlight(NULL)
+```
+
+### **Screened and Served Over Time by Indicator**
+
+```{r}
+plot_ly(data2, y = ~Served_indicator,x=~Year,type = "bar",marker = list(color = rev(brewer.pal(9,"YlOrBr"))[1],line = list(color = 'rgb(8,48,107)', width = 1.5)),hoverlabel = list(font = list(color = 'white')),
+        alpha = 0.75, hoverinfo='text', text = ~paste(Year,County,format(Served_indicator,big.mark=","),sep=" "))%>%
+layout(yaxis = list(showgrid = FALSE, showline = FALSE, showticklabels = TRUE,fixedrange=T, domain= c(0, 0.85),title = ''),
+         xaxis = list(zeroline = FALSE, showline = FALSE, showticklabels = TRUE,fixedrange=T, showgrid = TRUE,title = 'People Screened and Served'),showlegend = F,title = '',
+         legend = list(font = list(size = 10)),
+         margin = list(l = 20, r = 20, t = 0, b = 70)) %>% config(displayModeBar = F)%>%highlight(NULL)
+```
+
+
+PSA Data {style="position:relative;"} 
+=====================================  
+<div style="text-align: justify">
+# Instructions
+
+* **Use the filters to narrow down your data.**
+* **The default for all filters is to stack everything.**
+* **The legend is dynamic, meaning that the graph can be updated with a click.**
+</div>
+
+Column {style="height:60pc;"}
+-------------------------------------
+
+```{r }
+ filter_select("Year", "Year", data3, ~Year, multiple=F)
+```
+
+ <font size="5"> **Percentage of Older Adults by Indicator** </font>
+
+### **Population 60+**
+
+```{r}
+plot_ly(data3, y = ~Indicator,x=~standard,type = "bar",orientation = 'h',marker=list(color = rev(brewer.pal(9,"Oranges"))[5],line = list(color = 'rgb(8,48,107)', width = 1.5)),hoverlabel = list(font = list(color = 'white')),alpha = 0.75, hoverinfo='text', text = ~paste(Year,' ',standard, '%',' of 60+ Population',sep=""))%>%
+layout(yaxis = list(showgrid = FALSE, showline = FALSE, showticklabels = TRUE, fixedrange=T,domain= c(0, 0.85),title = ''),
+         xaxis = list(zeroline = FALSE, showline = FALSE, showticklabels = TRUE,fixedrange=T, showgrid = TRUE,title = 'Percentage of 60+ Population'),showlegend = F,title = '',
+         legend = list(font = list(size = 10)),
+         margin = list(l = 20, r = 20, t = 0, b = 70)) %>% config(displayModeBar = F)%>%highlight(NULL)
+```
+
+
+### **Screened and Served**
+
+```{r}
+plot_ly(data3, y = ~Indicator,x=~performance,type = "bar",orientation = 'h',marker=list(color = rev(brewer.pal(9,"Blues"))[1],line = list(color = 'rgb(8,48,107)', width = 1.5)),hoverlabel = list(font = list(color = 'white')),alpha = 0.75, hoverinfo='text', text = ~paste(Year,' ',performance, '%',' of Population Screened and Served',sep=""))%>% config(displayModeBar = F) %>%
+layout(yaxis = list(showgrid = FALSE, showline = FALSE, showticklabels = TRUE,fixedrange=T, domain= c(0, 0.85),title = ''),
+         xaxis = list(zeroline = FALSE, showline = FALSE, showticklabels = TRUE, fixedrange=T,showgrid = TRUE,title = 'Percentage of People Screened and Served'),showlegend = F,title = '',
+         legend = list(font = list(size = 10)),
+         margin = list(l = 20, r = 20, t = 0, b = 70)) %>% config(displayModeBar = F)%>%highlight(NULL)
+```
+
+
+Column {style="height:60pc;"}
+-------------------------------------
+```{r }
+data4 <- SharedData$new(data_PSA)
+ filter_select("Indicator", "Indicator", data4, ~Indicator, multiple=F)
+```
+
+ <font size="5"> **Older Adults Served over Time by Indicator** </font>
+
+### **Population 60+ Over Time by Indicator**
+
+```{r}
+plot_ly(data4, x = ~Year,y=~Indicator_pop,type = "bar",marker = list(color = rev(brewer.pal(9,"Reds"))[4],line = list(color = 'rgb(8,48,107)', width = 1.5)),hoverlabel = list(font = list(color = 'white')),
+        alpha = 0.75, hoverinfo='text', text = ~paste(Year,County,format(Indicator_pop,big.mark=","),sep=" "))%>%
+layout(yaxis = list(showgrid = FALSE, showline = FALSE, showticklabels = TRUE,fixedrange=T, domain= c(0, 0.85),title = ''),
+         xaxis = list(zeroline = FALSE, showline = FALSE, showticklabels = TRUE,fixedrange=T, showgrid = TRUE,title = 'Population 60+'),showlegend = F,title = '',
+         legend = list(font = list(size = 10)),
+         margin = list(l = 20, r = 20, t = 0, b = 70)) %>% config(displayModeBar = F)%>%highlight(NULL)
+```
+
+### **Screened and Served Over Time by Indicator**
+
+```{r}
+plot_ly(data4, y = ~Served_indicator,x=~Year,type = "bar",marker = list(color = rev(brewer.pal(9,"YlOrBr"))[1],line = list(color = 'rgb(8,48,107)', width = 1.5)),hoverlabel = list(font = list(color = 'white')),
+        alpha = 0.75, hoverinfo='text', text = ~paste(Year,County,format(Served_indicator,big.mark=","),sep=" "))%>%
+layout(yaxis = list(showgrid = FALSE, showline = FALSE, showticklabels = TRUE,fixedrange=T, domain= c(0, 0.85),title = ''),
+         xaxis = list(zeroline = FALSE, showline = FALSE, showticklabels = TRUE,fixedrange=T, showgrid = TRUE,title = 'People Screened and Served'),showlegend = F,title = '',
+         legend = list(font = list(size = 10)),
+         margin = list(l = 20, r = 20, t = 0, b = 70)) %>% config(displayModeBar = F)%>%highlight(NULL)
+```
+
+
+Performance {style="position:relative;"} 
+=====================================  
+<div style="text-align: justify">
+# Instructions
+
+* **Use the filters to narrow down your data.**
+* **The default for all filters is to stack everything.**
+* **Boxes are color coded by your performance and if you hover over the box you will see the standard for that indicator, and whether the area met, exceeeded, or did not meet the standard and by how much.**
+* **The legend is dynamic, meaning that the graph can be updated with a click.**
+</div>
+
+Column {style="height:70pc;"}
+-------------------------------------
+
+```{r}
+df_per <- SharedData$new(data%>%arrange(group))
+filter_select("Indicator", "First Indicator", df_per, ~Indicator, multiple=F)
+```
+
+### **Indicator Performance by Area and Year**
+
+```{r}
+plot_ly(df_per,
+    y = ~performance,
+ type = "bar",name = ~group, marker = list(color = ~color_type,
+                          line = list(color = 'rgb(8,48,107)', width = 1.5)),
+hoverinfo = "text",
+        textfont = list(color = '#ffffff', size = 12),
+              hovertext =~paste(Year,' ',County,' ','Standard: ',standard,'%','\n',text,sep=""),hoverlabel = list(font = list(color = 'white')),
+ x = ~County,
+    transforms = list(
+      list(
+        type = 'filter',
+        target = ~Year,
+        operation = '=',
+        value = ~unique(Year)[1]
+      )))%>%
+    layout(yaxis = list(showgrid = T, showline = FALSE, showticklabels = TRUE,fixedrange=T,title = ''),xaxis = list(showgrid = FALSE, showline = FALSE, showticklabels = TRUE,fixedrange=T,title = ~paste("Performance for ",Indicator,sep="")),showlegend = T,legend = list(font = list(size = 12),orientation = 'h',
+xanchor = "center",  # use center of legend as anchor
+x = 0.5,y = -0.2),
+           updatemenus = list(
+      list(
+        type='dropdown',
+        active = 0,
+                 xanchor="left",
+            y=1.3,
+            yanchor="top",
+        buttons = list(
+          list(method = "restyle",
+               args = list("transforms[0].value",  ~unique(Year)[1]),
+               label =   ~unique(Year)[1]),
+          list(method = "restyle",
+               args = list("transforms[0].value",   ~unique(Year)[2]),
+               label =  ~unique(Year)[2]),
+          list(method = "restyle",
+               args = list("transforms[0].value",   ~unique(Year)[3]),
+               label = ~unique(Year)[3]),
+          list(method = "restyle",
+               args = list("transforms[0].value",  ~unique(Year)[4]),
+               label =   ~unique(Year)[4]),
+          list(method = "restyle",args = list("transforms[0].value",   ~unique(Year)[5]),label = ~unique(Year)[5]))))) %>% config(displayModeBar = F)%>%highlight(NULL)
+```
+
+### **Indicator Performance Over Time, by Area**
+
+```{r}
+plot_ly(df_per,x = ~Year, y = ~performance,  type = 'scatter',  hoverinfo='text',
+ hovertext =~paste(Year,' ',County,' ','Standard: ',standard,'%','\n',text,sep=""),hoverlabel = list(font = list(color = 'white')),
+split=~I(County),symbol = ~(group),color=~I(color_type),marker = list(size = 10),
+mode="markers")%>%highlight(NULL)%>%
+  config(displayModeBar = F)%>%layout(title = '',showlegend=T,
+legend = list(font = list(size = 10)),yaxis = list(title = ""),xaxis = list(title = ""),
+margin = list(l = 25, r = 2, t = 35, b = 35))
+```
+
+Column {style="height:70pc;"}
+-----------------------------------
+```{r}
+df_per2 <- SharedData$new(data%>%arrange(group))
+filter_select("Indicator", "Second Indicator", df_per2, ~Indicator, multiple=F)
+```
+
+### **Indicator Performance by Area and Year**
+
+```{r}
+
+plot_ly(df_per2,
+    y = ~performance,
+ type = "bar",split = ~group, marker = list(color = ~color_type,
+                          line = list(color = 'rgb(8,48,107)', width = 1.5)),
+hoverinfo = "text",
+        textfont = list(color = '#ffffff', size = 12),
+              hovertext =~paste(Year,' ',County,' ','Standard: ',standard,'%','\n',text,sep=""),hoverlabel = list(font = list(color = 'white')),
+ x = ~County,
+    transforms = list(
+      list(
+        type = 'filter',
+        target = ~Year,
+        operation = '=',
+        value = ~unique(Year)[1]
+      )))%>%
+    layout(yaxis = list(showgrid = T, showline = FALSE, showticklabels = TRUE,fixedrange=T,title = ''),xaxis = list(showgrid = FALSE, showline = FALSE, showticklabels = TRUE,fixedrange=T,title = ~paste("Performance for ",Indicator,sep="")),showlegend = T,legend = list(font = list(size = 12),orientation = 'h',
+xanchor = "center",  # use center of legend as anchor
+x = 0.5,y = -0.2),
+           updatemenus = list(
+      list(
+        type='dropdown',
+        active = 0,
+                 xanchor="left",
+            y=1.3,
+            yanchor="top",
+        buttons = list(
+          list(method = "restyle",
+               args = list("transforms[0].value",  ~unique(Year)[1]),
+               label =   ~unique(Year)[1]),
+          list(method = "restyle",
+               args = list("transforms[0].value",   ~unique(Year)[2]),
+               label =  ~unique(Year)[2]),
+          list(method = "restyle",
+               args = list("transforms[0].value",   ~unique(Year)[3]),
+               label = ~unique(Year)[3]),
+          list(method = "restyle",
+               args = list("transforms[0].value",  ~unique(Year)[4]),
+               label =   ~unique(Year)[4]),
+          list(method = "restyle",args = list("transforms[0].value",   ~unique(Year)[5]),label = ~unique(Year)[5]))))) %>% config(displayModeBar = F)%>%highlight(NULL)
+```
+
+### **Indicator Performance Over Time, by Area**
+
+```{r}
+plot_ly(df_per2,x = ~Year, y = ~performance,  type = 'scatter', hoverinfo='text',  hovertext =~paste(Year,' ',County,' ','Standard: ',standard,'%','\n',text,sep=""),hoverlabel = list(font = list(color = 'white')),
+split=~I(County),symbol = ~(group),color=~I(color_type),marker = list(size = 10),
+mode="markers")%>%highlight(NULL)%>%
+  config(displayModeBar = F)%>%layout(title = '',showlegend=T,
+legend = list(font = list(size = 10)),yaxis = list(title = ""),xaxis = list(title = ""),
+margin = list(l = 25, r = 2, t = 35, b = 35))
+```
+
+
+Map{style="position:relative;"} 
+=====================================  
+
+```{r warning=F,include = F}
+#import the targeting data of year of interest
+target = read.csv("data/Targeting_map.csv")
+target = target[target$Service_PSA == "1",]
+#adding new columns
+target$standard = ceiling((target$Indicator_pop/target$Population)*100)
+target$performance = ceiling((target$Served_indicator/target$Number_Served_and_Screened)*100)
+target$text = ifelse(target$performance>=(target$standard*2),paste("SUPER Exceeds by ",target$performance-target$standard,"%",sep=""),ifelse(target$performance>=(target$standard+10),paste("Standard Plus 10% over ",target$performance-target$standard,"%",sep=""),ifelse(target$performance>=target$standard,paste("Meets or Exceeds by ",target$performance-target$standard,"%",sep=""),paste("Does Not Meet by ",target$standard-target$performance,"% Needs to serve at least ",ceiling((target$standard*target$Number_Served_and_Screened/100)-target$Served_indicator)," more client(s)",sep=""))))
+target$difference = target$performance-target$standard
+target$indicator = ifelse(target$difference<0,"Does Not Meet","Meets or Exceeds")
+
+#remove tracts with no population and no served
+target = target[target$standard!=0&target$performance!=0,]
+
+
+#import census tract shape file
+m =readOGR("data/tl_2019_12_tract.shp", stringsAsFactors = F)
+m = spTransform(m, CRS("+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0 +units=m"))
+m = m[m$GEOID%in%target$Tract,]
+target$Indicator = as.factor(target$Indicator)
+sub =levels(target$Indicator)
+
+#merge data
+df1= merge(m,target[target$Indicator==sub[1],],by.x = "GEOID",by.y = "Tract",all.x=F)
+df2 = merge(m,target[target$Indicator==sub[2],],by.x = "GEOID",by.y = "Tract",all.x=F)
+df3 = merge(m,target[target$Indicator==sub[3],],by.x = "GEOID",by.y = "Tract",all.x=F)
+df4 = merge(m,target[target$Indicator==sub[4],],by.x = "GEOID",by.y = "Tract",all.x=F)
+df5 = merge(m,target[target$Indicator==sub[5],],by.x = "GEOID",by.y = "Tract",all.x=F)
+df6 = merge(m,target[target$Indicator==sub[6],],by.x = "GEOID",by.y = "Tract",all.x=F)
+
+#create rural data
+df7 = distinct(target[target$Designation=="Rural",c(1:5,8:9)])
+df7 = merge(df7,aggregate(list(Tot_Served = df7$Number_Served_and_Screened,Tot_Pop =df7$Population),by=list(Service_PSA=df7$Service_PSA),mean,na.rm=T),by="Service_PSA")
+#adding new columns
+df7$standard = ceiling((df7$Population/df7$Tot_Pop)*100)
+df7$performance = ceiling((df7$Number_Served_and_Screened/df7$Tot_Served)*100)
+df7$text = ifelse(df7$performance>=(df7$standard*2),paste("SUPER Exceeds by ",df7$performance-df7$standard,"%",sep=""),ifelse(df7$performance>=(df7$standard+10),paste("Standard Plus 10% over ",df7$performance-df7$standard,"%",sep=""),ifelse(df7$performance>=df7$standard,paste("Meets or Exceeds by ",df7$performance-df7$standard,"%",sep=""),paste("Does Not Meet by ",df7$standard-df7$performance,"% Needs to serve at least ",ceiling((df7$standard*df7$Tot_Served/100)-df7$Number_Served_and_Screened)," more client(s)",sep=""))))
+df7$difference = round(df7$performance-df7$standard,1)
+df7$indicator = ifelse(df7$difference<0,"Does Not Meet","Meets or Exceeds")
+df7 = merge(m,df7,by.x = "GEOID",by.y = "Tract",all.x=F)
+
+
+df=list(df1,df2,df3,df4,df5,df6,df7)
+
+#creating map
+
+#color scheme will have to be split by the value. Use color scheme greys for the positive values and the color for the negative values.
+
+#Below_Poverty
+df1$difference = sort(df1$difference)
+
+#color code positive values
+quantileNum <- 3
+
+probs <- seq(0, 1, length.out = quantileNum + 1)
+bins <- quantile(df1$difference[df1$difference>-0.000001], probs, na.rm = TRUE, names = FALSE)
+
+while (length(unique(bins)) != length(bins)) {
+ quantileNum <- quantileNum - 1
+ probs <- seq(0, 1, length.out = quantileNum + 1)
+ bins <- quantile(a, probs, na.rm = TRUE, names = FALSE)
+}
+
+qpal <- colorBin(brewer.pal(9,"Greys"), bins = bins)
+
+qpal_labs=paste(lag(round(bins,1)), round(bins,1), sep = " to ")[-1]
+qpal_colors <- unique(qpal(df1$difference[df1$difference>-0.000001])) # hex codes
+
+#color code negative values 
+quantileNum <- 2#depending on the actual values available you may have to update this number
+probs <- seq(0, 1, length.out = quantileNum + 1)
+bins2 <- quantile(df1$difference[df1$difference<0], probs, na.rm = TRUE, names = FALSE)
+
+while (length(unique(bins2)) != length(bins2)) {
+ quantileNum <- quantileNum - 1
+ probs <- seq(0, 1, length.out = quantileNum + 1)
+ bins2 <- quantile(a, probs, na.rm = TRUE, names = FALSE)
+}
+
+qpaln <-colorBin(brewer.pal(9,"Oranges")[5:9], bins = bins2,reverse=T)
+
+qpaln_labs=paste(lag(round(bins2,1)), round(bins2,1), sep = " to ")[-1]
+qpaln_colors <- unique(qpaln(df1$difference[df1$difference<0])) # hex codes
+
+#creating color scheme for map
+qpal = c(qpaln(df1$difference[df1$difference<0]),qpal(df1$difference[df1$difference>-0.000001]))
+qpal_labs = c(qpaln_labs,qpal_labs)
+qpal_colors = c(qpaln_colors,qpal_colors)
+
+#Living Alone
+df2$difference = sort(df2$difference)
+
+#color code positive values
+quantileNum <- 2
+probs <- seq(0, 1, length.out = quantileNum + 1)
+bins <- quantile(df2$difference[df2$difference>-0.000001], probs, na.rm = TRUE, names = FALSE)
+
+while (length(unique(bins)) != length(bins)) {
+ quantileNum <- quantileNum - 1
+ probs <- seq(0, 1, length.out = quantileNum + 1)
+ bins <- quantile(a, probs, na.rm = TRUE, names = FALSE)
+}
+
+qpal1 <- colorBin(brewer.pal(9,"Greys"), bins = bins)
+
+qpal_labs1=paste(lag(round(bins,1)), round(bins,1), sep = " to ")[-1]
+qpal_colors1 <- unique(qpal1(df2$difference[df2$difference>-0.000001])) # hex codes
+
+#color code negative values 
+quantileNum <- 3 #depending on the actual values available you may have to update this number
+#make sure though that the total sums to 6 so add another to the positive when this occurs
+probs <- seq(0, 1, length.out = quantileNum + 1)
+bins2 <- quantile(df2$difference[df2$difference<0], probs, na.rm = TRUE, names = FALSE)
+
+while (length(unique(bins2)) != length(bins2)) {
+ quantileNum <- quantileNum - 1
+ probs <- seq(0, 1, length.out = quantileNum + 1)
+ bins2 <- quantile(a, probs, na.rm = TRUE, names = FALSE)
+}
+
+qpal1n <-colorBin(brewer.pal(9,"Blues")[5:9], bins = bins2,reverse=T)
+
+qpal_labs1n=paste(lag(round(bins2,1)), round(bins2,1), sep = " to ")[-1]
+qpal_colors1n <- unique(qpal1n(df2$difference[df2$difference<0])) # hex codes
+
+#creating color scheme for map
+qpal1 = c(qpal1n(df2$difference[df2$difference<0]),qpal1(df2$difference[df2$difference>-0.000001]))
+qpal_labs1 = c(qpal_labs1n,qpal_labs1)
+qpal_colors1 = c(qpal_colors1n,qpal_colors1)
+
+#LEP
+df3$difference = sort(df3$difference)
+
+#color code positive values
+quantileNum <- 4
+probs <- seq(0, 1, length.out = quantileNum + 1)
+bins <- quantile(df3$difference[df3$difference>-0.000001], probs, na.rm = TRUE, names = FALSE)
+
+while (length(unique(bins)) != length(bins)) {
+ quantileNum <- quantileNum - 1
+ probs <- seq(0, 1, length.out = quantileNum + 1)
+ bins <- quantile(a, probs, na.rm = TRUE, names = FALSE)
+}
+
+qpal2 <- colorBin(brewer.pal(9,"Greys"), bins = bins)
+
+qpal_labs2=paste(lag(round(bins,1)), round(bins,1), sep = " to ")[-1]
+qpal_colors2 <- unique(qpal2(df3$difference[df3$difference>-0.000001])) # hex codes
+
+#color code negative values 
+quantileNum <- 1 #depending on the actual values available you may have to update this number
+#make sure though that the total sums to 6 so add another to the positive when this occurs
+probs <- seq(0, 1, length.out = quantileNum + 1)
+bins2 <- quantile(df3$difference[df3$difference<0], probs, na.rm = TRUE, names = FALSE)
+
+while (length(unique(bins2)) != length(bins2)) {
+ quantileNum <- quantileNum - 1
+ probs <- seq(0, 1, length.out = quantileNum + 1)
+ bins2 <- quantile(a, probs, na.rm = TRUE, names = FALSE)
+}
+
+qpal2n <-colorBin(brewer.pal(9,"Reds")[5:9], bins = bins2,reverse=T)
+qpal_labs2n=paste(lag(round(bins2,1)), round(bins2,1), sep = " to ")[-1]
+qpal_colors2n <- unique(qpal2n(df3$difference[df3$difference<0])) # hex codes
+
+#creating color scheme for map
+qpal2 = c(qpal2n(df3$difference[df3$difference<0]),qpal2(df3$difference[df3$difference>-0.000001]))
+qpal_labs2 = c(qpal_labs2n,qpal_labs2)
+qpal_colors2 = c(qpal_colors2n,qpal_colors2)
+
+#Minority
+df4$difference = sort(df4$difference)
+
+#color code positive values
+quantileNum <- 2
+probs <- seq(0, 1, length.out = quantileNum + 1)
+bins <- quantile(df4$difference[df4$difference>-0.000001], probs, na.rm = TRUE, names = FALSE)
+
+while (length(unique(bins)) != length(bins)) {
+ quantileNum <- quantileNum - 1
+ probs <- seq(0, 1, length.out = quantileNum + 1)
+ bins <- quantile(a, probs, na.rm = TRUE, names = FALSE)
+}
+
+qpal3 <- colorBin(brewer.pal(9,"Greys"), bins = bins)
+
+qpal_labs3=paste(lag(round(bins,1)), round(bins,1), sep = " to ")[-1]
+qpal_colors3<- unique(qpal3(df4$difference[df4$difference>-0.000001])) # hex codes
+
+#color code negative values 
+quantileNum <- 3  #depending on the actual values available you may have to update this number
+#make sure though that the total sums to 6 so add another to the positive when this occurs
+probs <- seq(0, 1, length.out = quantileNum + 1)
+bins2 <- quantile(df4$difference[df4$difference<0], probs, na.rm = TRUE, names = FALSE)
+
+while (length(unique(bins2)) != length(bins2)) {
+ quantileNum <- quantileNum - 1
+ probs <- seq(0, 1, length.out = quantileNum + 1)
+ bins2 <- quantile(a, probs, na.rm = TRUE, names = FALSE)
+}
+
+qpal3n <-colorBin(brewer.pal(9,"YlOrBr")[5:9], bins = bins2,reverse=T)
+
+qpal_labs3n=paste(lag(round(bins2,1)), round(bins2,1), sep = " to ")[-1]
+qpal_colors3n <- unique(qpal3n(df4$difference[df4$difference<0])) # hex codes
+
+#creating color scheme for map
+qpal3 = c(qpal3n(df4$difference[df4$difference<0]),qpal3(df4$difference[df4$difference>-0.000001]))
+qpal_labs3 = c(qpal_labs3n,qpal_labs3)
+qpal_colors3 = c(qpal_colors3n,qpal_colors3)
+
+#Poor_Minority
+df5$difference = sort(df5$difference)
+
+#color code positive values
+quantileNum <- 3
+probs <- seq(0, 1, length.out = quantileNum + 1)
+bins <- quantile(df5$difference[df5$difference>-0.000001], probs, na.rm = TRUE, names = FALSE)
+
+while (length(unique(bins)) != length(bins)) {
+ quantileNum <- quantileNum - 1
+ probs <- seq(0, 1, length.out = quantileNum + 1)
+ bins <- quantile(a, probs, na.rm = TRUE, names = FALSE)
+}
+
+qpal4 <- colorBin(brewer.pal(9,"Greys"), bins = bins)
+
+qpal_labs4=paste(lag(round(bins,1)), round(bins,1), sep = " to ")[-1]
+qpal_colors4<- unique(qpal4(df5$difference[df5$difference>-0.000001])) # hex codes
+
+#color code negative values 
+quantileNum <- 2  #depending on the actual values available you may have to update this number
+#make sure though that the total sums to 6 so add another to the positive when this occurs
+probs <- seq(0, 1, length.out = quantileNum + 1)
+bins2 <- quantile(df5$difference[df5$difference<0], probs, na.rm = TRUE, names = FALSE)
+
+while (length(unique(bins2)) != length(bins2)) {
+ quantileNum <- quantileNum - 1
+ probs <- seq(0, 1, length.out = quantileNum + 1)
+ bins2 <- quantile(a, probs, na.rm = TRUE, names = FALSE)
+}
+
+qpal4n <-colorBin(brewer.pal(9,"RdPu")[5:9], bins = bins2,reverse=T)
+
+qpal_labs4n=paste(lag(round(bins2,1)), round(bins2,1), sep = " to ")[-1]
+qpal_colors4n <- unique(qpal4n(df5$difference[df5$difference<0])) # hex codes
+
+#creating color scheme for map
+qpal4 = c(qpal4n(df5$difference[df5$difference<0]),qpal4(df5$difference[df5$difference>-0.00001]))
+qpal_labs4 = c(qpal_labs4n,qpal_labs4)
+qpal_colors4 = c(qpal_colors4n,qpal_colors4)
+
+#Prob_Alz
+df6$difference = sort(df6$difference)
+
+#color code positive values
+quantileNum <- 4
+probs <- seq(0, 1, length.out = quantileNum + 1)
+bins <- quantile(df6$difference[df6$difference>-0.000001], probs, na.rm = TRUE, names = FALSE)
+
+while (length(unique(bins)) != length(bins)) {
+ quantileNum <- quantileNum - 1
+ probs <- seq(0, 1, length.out = quantileNum + 1)
+ bins <- quantile(a, probs, na.rm = TRUE, names = FALSE)
+}
+
+qpal5 <- colorBin(brewer.pal(9,"Greys"), bins = bins)
+
+qpal_labs5=paste(lag(round(bins,1)), round(bins,1), sep = " to ")[-1]
+qpal_colors5<- unique(qpal5(df6$difference[df6$difference>-0.000001])) # hex codes
+
+#color code negative values 
+quantileNum <- 1  #depending on the actual values available you may have to update this number
+#make sure though that the total sums to 6 so add another to the positive when this occurs
+probs <- seq(0, 1, length.out = quantileNum + 1)
+bins2 <- quantile(df6$difference[df6$difference<0], probs, na.rm = TRUE, names = FALSE)
+
+while (length(unique(bins2)) != length(bins2)) {
+ quantileNum <- quantileNum - 1
+ probs <- seq(0, 1, length.out = quantileNum + 1)
+ bins2 <- quantile(a, probs, na.rm = TRUE, names = FALSE)
+}
+
+qpal5n <-colorBin(brewer.pal(9,"Purples")[5:9], bins = bins2,reverse=T)
+
+qpal_labs5n=paste(lag(round(bins2,1)), round(bins2,1), sep = " to ")[-1]
+qpal_colors5n <- unique(qpal5n(df6$difference[df6$difference<0])) # hex codes
+
+#creating color scheme for map
+qpal5 = c(qpal5n(df6$difference[df6$difference<0]),qpal5(df6$difference[df6$difference>-0.0001]))
+qpal_labs5 = c(qpal_labs5n,qpal_labs5)
+qpal_colors5 = c(qpal_colors5n,qpal_colors5)
+
+#Rural
+df7$difference = sort(df7$difference)
+
+#color code positive values
+quantileNum <- 2
+probs <- seq(0, 1, length.out = quantileNum + 1)
+bins <- quantile(df7$difference[df7$difference>-0.00001], probs, na.rm = TRUE, names = FALSE)
+
+while (length(unique(bins)) != length(bins)) {
+ quantileNum <- quantileNum - 1
+ probs <- seq(0, 1, length.out = quantileNum + 1)
+ bins <- quantile(a, probs, na.rm = TRUE, names = FALSE)
+}
+
+qpal6 <- colorBin(brewer.pal(9,"Greys"), bins = bins)
+
+qpal_labs6=paste(lag(round(bins,1)), round(bins,1), sep = " to ")[-1]
+qpal_colors6<- unique(qpal6(df7$difference[df7$difference>-0.000001])) # hex codes
+
+#color code negative values 
+quantileNum <- 3  #depending on the actual values available you may have to update this number
+#make sure though that the total sums to 6 so add another to the positive when this occurs
+probs <- seq(0, 1, length.out = quantileNum + 1)
+bins2 <- quantile(df7$difference[df7$difference<0], probs, na.rm = TRUE, names = FALSE)
+
+while (length(unique(bins2)) != length(bins2)) {
+ quantileNum <- quantileNum - 1
+ probs <- seq(0, 1, length.out = quantileNum + 1)
+ bins2 <- quantile(a, probs, na.rm = TRUE, names = FALSE)
+}
+
+qpal6n <-colorBin(brewer.pal(9,"OrRd")[5:9], bins = bins2,reverse=T)
+
+qpal_labs6n=paste(lag(round(bins2,1)), round(bins2,1), sep = " to ")[-1]
+qpal_colors6n <- unique(qpal6n(df7$difference[df7$difference<0])) # hex codes
+
+#creating color scheme for map
+qpal6 = c(qpal6n(df7$difference[df7$difference<0]),qpal6(df7$difference[df7$difference>-0.00001]))
+qpal_labs6 = c(qpal_labs6n,qpal_labs6)
+qpal_colors6 = c(qpal_colors6n,qpal_colors6)
+
+
+qpal_colorss = list(qpal_colors,qpal_colors1,qpal_colors2,qpal_colors3,qpal_colors4,qpal_colors5,qpal_colors6)
+qpal_labss = list(qpal_labs,qpal_labs1,qpal_labs2,qpal_labs3,qpal_labs4,qpal_labs5,qpal_labs6)
+qpalss = list(qpal,qpal1,qpal2,qpal3,qpal4,qpal5,qpal6)
+groups = c("Below Poverty Level","Lives Alone","Limited English Proficiency","Minority","Minority Below Poverty","Probable Alzheimer's","Rural")
+markers =c("CARES Offices","Aging and Disability Resource Centers","Congregate Meal Sites","Memory Disorder Clinics","Providers","Specialized Aging and Disability Resource Centers")
+
+loc = read.csv("data/cares.csv")
+loc$County = stringr::str_replace(as.character(loc$County)," County","")
+loc = loc[loc$County%in%data_county$County,]
+
+loc2 = read.csv("data/ADRC.csv")
+loc2 = loc2[loc2$Subregion%in%data_county$County,]
+
+loc3 = read.csv("data/CMS.csv")
+loc3 = loc3[loc3$Subregion%in%data_county$County,]
+
+loc4 = read.csv("data/MDC.csv")
+loc4 = loc4[loc4$Subregion%in%data_county$County,]
+
+loc5 = read.csv("data/Providers.csv")
+loc5 = loc5[loc5$Subregion%in%data_county$County,]
+
+loc6 = read.csv("data/Spec_ADRD.csv")
+loc6 = loc6[loc6$County%in%data_county$County,]
+
+#icons
+  CARES = makeIcon("CARES logo.png", NULL, 20, 15)
+    cms = makeIcon("cms.png", NULL, 20, 15)
+  mdc = makeIcon("mdc.png", NULL, 20, 15)
+  adrc = makeIcon("adrc.png", NULL, 20, 15)
+    providers = makeIcon("providers.png", NULL, 20, 15)
+
+
+    
+mapbox_url = "https://api.mapbox.com/styles/v1/doea15/ck5e9g4v30s871iuo3ks3rr39/tiles/256/{z}/{x}/{y}@2x?access_token=pk.eyJ1IjoiZG9lYTE1IiwiYSI6ImNrNWU5MDc1dzAybXMzbnFyMHN2aGdyNHkifQ.6aVgNJZPKidVs2JisXsYHg"
+  map_attr <- "Prepared by the Florida Department of Elder Affairs with © <a href='https://www.mapbox.com/map-feedback/'>Mapbox</a>"
+
+
+rawleafletmap <- leaflet(width="100%", height="100%")%>%addTiles(urlTemplate = mapbox_url, attribution = map_attr)%>%fitBounds(min(df1$INTPTLON), min(df1$INTPTLAT),max(df1$INTPTLON), max(df1$INTPTLAT))
+
+LeafletLayer <- function(map,data, fill, group,legend_color,legend_label){
+  for (i in 1:7){
+    df[[i]]@data = df[[i]]@data[order(df[[i]]$difference),]
+    map <-   addPolygons(map=map,data=df[[i]],fillColor = fill[[i]], weight = 1, smoothFactor = 0.5,
+                        color="white",
+                        dashArray = "3",
+                        fillOpacity = 0.5,
+                        group =group[i],
+                        highlight = highlightOptions(
+                          weight = 5,
+                          color = "#666",
+                          dashArray = "",
+                          fillOpacity = 0.5,
+                          bringToFront = TRUE),
+                          popup = paste("Tract:",df[[i]]$GEOID,"<br>",
+                                       "County:",df[[i]]$Service_County,"<br>",
+                                       "Total Population 60+",df[[i]]$Population,"<br>",
+                                       "Total Clients Served",df[[i]]$Number_Served_and_Screened,"<br>",
+                                       "Population 60+ Below Poverty:",df[[i]]$Indicator_pop,"<br>",
+                                       "Clients Served:",df[[i]]$Served_indicator,"<br>",
+                                       "Note:",df[[i]]$text,"<br>",
+                                       "Area:",df[[i]]$Designation)) %>%
+    addLegend("bottomleft", colors = legend_color[[i]], labels=legend_label[[i]],
+              title =group[i],
+              opacity = 1,group=group[i])
+      
+  }
+  map <-addLayersControl(map=map,baseGroups = group,overlayGroups = markers,
+                          options = layersControlOptions(collapsed = FALSE))
+}
+
+map = LeafletLayer(map=rawleafletmap, data=df, fill=qpalss, 
+                   group=groups,legend_color=qpal_colorss,legend_label = qpal_labss) %>%
+  addMarkers(loc$lon, loc$lat, group = markers[1],icon = CARES,
+                          popup = paste("County:",loc$County,"<br>",
+                                        "Address:",loc$address,"<br>",
+                                        "Phone Number:",loc$phone))  %>%
+  addMarkers(loc2$X, loc2$Y, group = markers[2],icon = adrc,
+                          popup = paste("Name:",loc2$Name,"<br>",
+                            "County:",loc2$Subregion,"<br>",
+                                        "Address:",paste(loc2$Address,", ",loc2$City_1,", FL ",loc2$Zip,sep=""),"<br>",
+                                        "Phone Number:",loc2$Phone))%>%
+  addMarkers(loc3$X, loc3$Y, group = markers[3],icon = cms,
+                          popup = paste("Name:",loc3$Center_Nam,"<br>",
+                            "County:",loc3$Subregion,"<br>",
+                                        "Address:",paste(loc3$Address,", ",loc3$City_1,", FL ",loc3$Zip,sep=""),"<br>",
+                                        "Phone Number:",loc3$Phone,"<br>",
+                                      "Contact Person:",loc3$Contact_Pe,"<br>",
+                                      "Days of Operation:",loc3$Days_of_Op,"<br>",
+                                      "Meal Service:",loc3$Meal_Servi,"<br>",
+                                      "Fee:",loc3$Costshare,"<br>",
+                                      "Documentation Needed:",loc3$ID__Other,"<br>",
+                            "Set Menu:",loc3$Set_Menu__,"<br>",
+                            "Dietary Options:",loc3$Dietary_Op,"<br>",
+                            "Accepts Walk-ins:",loc3$Walk_in_av))%>%
+  addMarkers(loc4$X, loc4$Y, group = markers[4],icon = mdc,
+                          popup = paste("Name:",loc4$Name,"<br>",
+                            "County:",loc4$Subregion,"<br>",
+                                        "Address:",paste(loc4$Address,", ",loc4$City_1,", FL ",loc4$Zip,sep=""),"<br>",
+                                        "Phone Number:",loc4$Phone))%>%
+  addMarkers(loc5$X, loc5$Y, group = markers[5],icon = providers,
+                          popup = paste("Name:",loc5$Name,"<br>",
+                                        "Type of Provider:",loc5$Type,"<br>",
+                            "County Location:",loc5$Subregion,"<br>",
+                                        "Address:",paste(loc5$Street_Add,", ",loc5$City_1,", FL ",loc5$Zip__Code,sep=""),"<br>",
+                                        "Phone Number:",loc5$Phone_Numb,"<br>",
+                                      "Counties Served:", loc5$Counties_S,"<br>",
+                                      "Contact Person:",loc5$Contact_Pe,"<br>",
+                                      "Provides Meals:",loc5$Meals,"<br>",
+                                      "Meal Service:",loc3$Meal_Servi,"<br>",
+                                      "Health Screenings:",loc5$Health_Scr,"<br>",
+                                      "Classes:",loc5$Recreation,"<br>",
+                            "Learning Opportunities:",loc5$Learning_O))%>%
+  addMarkers(loc6$lon, loc6$lat, group = markers[6],icon = adrc,
+                          popup = paste("Name:",loc6$Name,"<br>",
+                            "County:",loc6$County,"<br>",
+                                        "Address:",loc6$address,"<br>",
+                                        "Phone Number:",loc6$Phone))%>% hideGroup(markers)
+```
+
+Row {style="height:52pc;"}
+------------------------
+<div style="text-align: justify">
+# Instructions
+
+* **Refresh the page to adjust the legends**
+* **Zoom in if needed using your browser.**
+* **You can select different groups to display for the target characteristics by Census Tract.**
+* **If you click on the Census Tract you will get more information about the client's served and population.**
+* **Negative numbers indicate that an area does not meet target while positive numbers indicate that an area meets or exceeds target.**
+</div>
+
+
+```{r echo=FALSE,warning=F}
+#if you add another plot with a legend increase the number
+map%>% onRender("
+    function(el, x) {
+      var updateLegend = function () {
+          var selectedGroup = document.querySelectorAll('input:checked')[0].nextSibling.innerText.substr(1);
+          var myNodeList = document.querySelectorAll('.legend');
+
+           Array.from(myNodeList).slice(8).forEach(a=> a.hidden=true);
+          Array.from(myNodeList).slice(8).forEach(l=> {
+            if (l.children[0].children[0].innerText == selectedGroup) l.hidden=false;
+          });
+      };
+      updateLegend();
+      this.on('baselayerchange', e => updateLegend());
+    }")%>%
+  addResetMapButton()%>%addSearchOSM()
+```
+
+Methodology  
+=====================================
+
+Row
+------------------------
+
+<div style="text-align: justify">
+
+# Targeting Dashboard
+
+The Older Americans Act (OAA) requires that states emphasize serving older individuals with the greatest economic or social need, with particular attention given to low-income older individuals, low-income minority elders, older individuals with Limited English Proficiency (LEP), and older individuals residing in rural areas.
+
+To help Florida pursue the goals set by OAA, the Department of Elder Affairs (DOEA, Department) has developed several tools to help Area Agency on Aging (AAA) planners estimate concentrations of seniors needing assistance from the aging network. The first tool, the Targeting Report and Dashboard, is an Excel spreadsheet with worksheet tabs compiling performance data from 2014-2017 and a set of graphic depictions of these data, to be used by the AAAs to measure the past performance serving older individuals with greatest economic or social need.
+
+The Targeting Report, Dashboard, and Maps document is updated annually for use in the area plan and area plan update. This document provides the AAAs with the total number and proportion of the screened and served, and compares this against the rate of occurrence in the general population age 60 and older in each county that falls into the following indicators, as a Standard of Performance:
+
+1. Below Poverty Level (Below 100% of Poverty Level);
+2. Low Income Minority (Below 100% of Poverty Level);
+3. Minority;
+4. Limited English Proficiency;
+5. Living Alone;
+6. Estimate of Probable Alzheimer's Cases; and
+7. Rurality.
+
+In addition to listing the total number and proportion of the general population age 60 and older for each indicator, the Targeting Report and Dashboard also lists the total number and proportion of those individuals who were served by the Department's OAA and/or General Revenue (GR) programs in a given calendar year. Screened individuals who are on the waitlist or going through the eligibility process for OAA services during the calendar year are also included. Exhibit 1 outlines the OAA and GR programs included in the Targeting Report and Dashboard and denotes whether those included in the analysis were screened and served or only served by the program during the calendar year.
+</div>
+
+*Exhibit 1: OAA and GR Programs Included in the Targeting Report, Dashboard, and Maps*
+<div style="width:800px; height:800px">
+![](exhibit1.png)
+</div>
+
+<div style="text-align: justify">
+The Targeting Report and Dashboard allows the AAAs to compare the proportions of the targeting indicators listed above to the proportions of those that were screened and served by OAA and/or GR programs for all counties contained in their Planning and Service Areas (PSAs). If the proportion of screened and served clients in a county is equal to or greater than that of the general 60 and older population in the county, that county "Meets or Exceeds" the standard of performance. For example, if a county's proportion of residents age 60 and older who live alone is 20 percent and those screened and served in that county who live alone is 35 percent, the county is considered to have met or exceeded the standard. Had the county's screened and served clients who were living alone been below 20 percent, the standard would not have been met.
+
+In addition to the "Meets or Exceeds" standard, two additional population proportion thresholds are provided: "SUPER Exceeds" and "Indicator Plus 10%." "SUPER Exceeds" is measured as the population of the targeting indicator defined as a percentage of the total population times two. "Indicator Plus 10%" is measured as the population of the targeting indicator as a percentage of the total senior population plus 10 percentage points.
+
+In the example in the above paragraph, the 35 percent of those screened and served is not twice the population indicator of 20 percent, so it does not "SUPER Exceed" the standard. The performance percentage of 35 does, however, exceed the "Indicator Plus 10%" standard, as 35 percent is greater than the 20 percent plus 10 percent. These measures of performance can be used by the AAAs to demonstrate how significantly they are excelling at serving individuals with the greatest social and/or economic need and illustrate when they should prioritize their targeting and outreach efforts elsewhere.
+
+# Data Elements of the Targeting Report and Dashboard
+
+The Targeting Report and Dashboard uses client data from the current calendar year. CIRTS data is used to identify individuals screened or served by the Department during the calendar year The "Standard of Performance" data to which the client data is compared is taken from the U.S. Census Bureaus' American Community Survey that was published the previous calendar year. Because the Targeting Report compares client data to population data, the client data and population data must share the same time frame to ensure a fair comparison. The section below provides definitions and descriptions of the measures used for targeting.
+
+* Population data is drawn from the U.S. Census Bureaus' most current American Community Survey 5 - Year Estimates. 
+
+* Client data is drawn from CIRTS.
+
+* Standard is  the population of the Indicator as a percent of total population.
+
+* Performance is the proportion of those Screened and Served.
+
+* Screened individuals include individuals on the waitlist or going through the eligibility process (i.e., APCL, APPL, or codes beginning with TA or TP in CIRTS) for OAA services during a given calendar year. 
+
+* Served individuals include those served in a given calendar year by the Department's OAA and/or General Revenue programs. 
+
+* Below Poverty Level refers to having an income that falls below 100% of the Federal Poverty Level. As of 2018, the federal poverty line is $12,140 per year for an individual.
+
+* Probable Alzheimer's Cases is based on a calculation using the age of an individual. The formula is: (Age Group 65 - 74 $\times$ 0.0365919632220045) + (Age Group 75 - 84 $\times$ 0.174333133015956) + (Age Group 85+ $\times$ 0.433871739439898). The formula is taken from research by: Hebert, L. E., Weuve, J., Scherr, P. A., & Evans, D. A. (2013). Alzheimer Disease in the United States (2010–2050) Estimated Using the 2010 Census. Neurology, 80(19), 1778-1783.
+
+* Census tracts are small, relatively permanent areas that do not cross county boundaries and generally contain between 1,200 and 8,000 persons and average about 4,000 inhabitants. Census tracts are often thought of as large neighborhoods, because they are typically homogenous in population characteristics and living conditions, and inhabitants share comparable socioeconomic status.
+
+* Rurality is created from the U.S. Census' rural population. The population 60+ for each County is estimated by multiplying the proportion of rural residents for the entire population by the population 60+.
+
+* For the map rurality is determined by the proportion of the population who live in a rural area according to the most recent Census. If a census tract has at least 50% of its population in a rural area then the census tract is labeled as rural.
+
+* The number of individuals screened and served by the Department during a given calendar year. The number of individuals served includes those that received one or more services from the Department's OAA and/or General Revenue programs. Screened individuals include those on the waitlist or going through the eligibility process for OAA services during the previous calendar year.
+
+* The Targeting Maps are based on the same proportional methodology as the Targeting Report and Dashboard, in that each map shades census blocks using the proportion of those screened and served for any given targeting indicator. A census tract "Does Not Meet" the standard of performance if the percentage of individuals screened or served is less than the rate of occurrence in the general population for their social group. The purpose of this mapping tool is to offer a spatial element that complements the Targeting Report and Dashboard to assist the AAAs that may be failing to meet, or are only marginally achieving a standard, in knowing where best to focus their outreach efforts.
+
+
+* The Targeting Map omits clients who were served but live out of area. These are clients who either reside in another state, PSA, or county.
+</div>
